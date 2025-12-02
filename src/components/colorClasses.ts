@@ -1,0 +1,58 @@
+import type { LabelColor } from "@/types";
+
+export const BG: Record<LabelColor, string> = {
+  red: "bg-red-500",
+  orange: "bg-orange-500",
+  amber: "bg-amber-500",
+  yellow: "bg-yellow-500",
+  lime: "bg-lime-500",
+  green: "bg-green-500",
+  teal: "bg-teal-500",
+  cyan: "bg-cyan-500",
+  sky: "bg-sky-500",
+  blue: "bg-blue-500",
+  indigo: "bg-indigo-500",
+  violet: "bg-violet-500",
+  purple: "bg-purple-500",
+  fuchsia: "bg-fuchsia-500",
+  pink: "bg-pink-500",
+  rose: "bg-rose-500",
+};
+
+export const RING: Record<LabelColor, string> = {
+  red: "ring-red-500/50",
+  orange: "ring-orange-500/50",
+  amber: "ring-amber-500/50",
+  yellow: "ring-yellow-500/50",
+  lime: "ring-lime-500/50",
+  green: "ring-green-500/50",
+  teal: "ring-teal-500/50",
+  cyan: "ring-cyan-500/50",
+  sky: "ring-sky-500/50",
+  blue: "ring-blue-500/50",
+  indigo: "ring-indigo-500/50",
+  violet: "ring-violet-500/50",
+  purple: "ring-purple-500/50",
+  fuchsia: "ring-fuchsia-500/50",
+  pink: "ring-pink-500/50",
+  rose: "ring-rose-500/50",
+};
+
+export const BORDER: Record<LabelColor, string> = {
+  red: "border-red-500",
+  orange: "border-orange-500",
+  amber: "border-amber-500",
+  yellow: "border-yellow-500",
+  lime: "border-lime-500",
+  green: "border-green-500",
+  teal: "border-teal-500",
+  cyan: "border-cyan-500",
+  sky: "border-sky-500",
+  blue: "border-blue-500",
+  indigo: "border-indigo-500",
+  violet: "border-violet-500",
+  purple: "border-purple-500",
+  fuchsia: "border-fuchsia-500",
+  pink: "border-pink-500",
+  rose: "border-rose-500",
+};
