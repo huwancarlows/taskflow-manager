@@ -1,57 +1,41 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { TaskStoreProvider } from "@/store/taskStore";
-import { TaskBoard } from "@/components/TaskBoard";
-import { FiltersBar } from "@/components/FiltersBar";
-import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
-import { ToastProvider } from "@/components/ToastProvider";
-import { AnnouncerProvider } from "@/components/Announcer";
-import type { Status } from "@/types";
-import { CommandPalette } from "@/components/CommandPalette";
+import Link from "next/link";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
-export default function Home() {
-  const [newRequest, setNewRequest] = useState(0);
-  const [newRequestStatus, setNewRequestStatus] = useState<Status | undefined>(undefined);
-  const searchRef = useRef<HTMLInputElement | null>(null);
+export default function Landing() {
+  const router = useRouter();
 
-  function openNewTask(status?: Status) {
-    setNewRequest((n) => n + 1);
-    setNewRequestStatus(status);
-  }
+  useEffect(() => {
+    // If logged in, go straight to board
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        router.replace("/board");
+      }
+    });
+  }, [router]);
 
   return (
-    <ToastProvider>
-      <TaskStoreProvider>
-        <AnnouncerProvider>
-          <KeyboardShortcuts
-            onNewTask={() => openNewTask()}
-            focusSearch={() => searchRef.current?.focus()}
-          />
-          <div id="app-root" className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100">
-          <header className="sticky top-0 z-10 border-b border-zinc-200/80 dark:border-zinc-800/80 backdrop-blur bg-white/70 dark:bg-zinc-950/70 shadow-sm">
-            <div className="mx-auto max-w-6xl px-4 py-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-6 w-6 rounded bg-linear-to-br from-blue-600 to-fuchsia-500" />
-                  <div className="leading-tight">
-                    <div className="font-semibold">TaskFlow Manager</div>
-                <span className="text-xs text-zinc-500">Press Ctrl/⌘ K</span>
-                  </div>
-                </div>
-                <span className="text-xs text-zinc-500">N: new • /: search • T/U: filters</span>
-              </div>
-            </div>
-          </header>
-            <CommandPalette onNewTask={openNewTask} focusSearch={() => searchRef.current?.focus()} />
+    <main className="min-h-dvh flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 px-4">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 text-center">
+          <div className="mx-auto h-10 w-10 rounded bg-linear-to-br from-blue-600 to-fuchsia-500" />
+          <h1 className="mt-3 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">TaskFlow Manager</h1>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Pick how you want to start</p>
+        </div>
 
-          <main className="mx-auto max-w-6xl px-4 py-6 space-y-4">
-            <FiltersBar onNewTask={() => openNewTask()} inputRef={searchRef} />
-            <TaskBoard newRequest={newRequest} newRequestStatus={newRequestStatus} />
-          </main>
-          </div>
-        </AnnouncerProvider>
-      </TaskStoreProvider>
-    </ToastProvider>
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm p-4 space-y-3">
+          <Link href="/login" className="block w-full text-center rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 py-2 text-sm font-medium hover:opacity-95">
+            Sign in
+          </Link>
+          <Link href="/guest" className="block w-full text-center rounded-md border border-zinc-300 dark:border-zinc-700 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+            Continue as guest
+          </Link>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 text-center">Guest mode stores data locally on this device.</p>
+        </div>
+      </div>
+    </main>
   );
 }

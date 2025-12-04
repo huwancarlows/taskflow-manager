@@ -12,7 +12,24 @@ export function FiltersBar({ onNewTask, inputRef }: { onNewTask: () => void; inp
   const searchRef = inputRef ?? localRef;
   const { announce } = useAnnouncer();
 
-  const activeLabels = useMemo(() => new Set(filters.labelIds), [filters.labelIds]);
+  // activeLabels by ID not used after switching to name-based selection
+  const nameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of state.labels) m.set(l.id, l.name.toLowerCase());
+    return m;
+  }, [state.labels]);
+  const selectedNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const id of filters.labelIds) {
+      const n = nameById.get(id);
+      if (n) s.add(n);
+    }
+    return s;
+  }, [filters.labelIds, nameById]);
+  const displayLabels = useMemo(() => {
+    // Show one circle per unique name to avoid duplicate colors/names
+    return Array.from(new Map(state.labels.map((l) => [l.name.toLowerCase(), l])).values());
+  }, [state.labels]);
 
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -84,17 +101,18 @@ export function FiltersBar({ onNewTask, inputRef }: { onNewTask: () => void; inp
 
       <div className="flex shrink-0 items-center gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          {state.labels.map((l) => (
+          {displayLabels.map((l) => (
             <button
               key={l.id}
               title={l.name}
               className={`h-6 w-6 rounded-full ring-2 ring-offset-2 transition ${
-                activeLabels.has(l.id) ? RING[l.color] : "ring-transparent"
+                selectedNames.has(l.name.toLowerCase()) ? RING[l.color] : "ring-transparent"
               } ${BG[l.color]}`}
               onClick={() => {
-                const has = activeLabels.has(l.id);
+                const nameKey = l.name.toLowerCase();
+                const has = selectedNames.has(nameKey);
                 const ids = has
-                  ? filters.labelIds.filter((id) => id !== l.id)
+                  ? filters.labelIds.filter((id) => nameById.get(id) !== nameKey)
                   : [...filters.labelIds, l.id];
                 setFilters({ labelIds: ids });
                 announce(`${l.name} label ${has ? "off" : "on"}`);

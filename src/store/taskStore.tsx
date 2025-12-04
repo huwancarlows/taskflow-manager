@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { BoardState, Filters, Label, Task, Status } from "@/types";
 import { DEFAULT_LABELS } from "@/types";
 import { supabase } from "@/lib/supabaseClient";
+import { useToast } from "@/components/ToastProvider";
 
 const STORAGE_KEY = "taskflow-board-v1"; // retained for fallback / local cache
 
@@ -26,64 +27,7 @@ interface TaskStoreValue {
 
 const TaskStoreCtx = createContext<TaskStoreValue | null>(null);
 
-async function fetchInitialState(): Promise<BoardState> {
-  // Try Supabase first; fall back to localStorage and defaults
-  try {
-    const { data: labelsData, error: labelsErr } = await supabase
-      .from("labels")
-      .select("id, name, color")
-      .order("name", { ascending: true });
-
-    const { data: tasksData, error: tasksErr } = await supabase
-      .from("tasks")
-      .select("id, title, description, status, due_date, created_at, updated_at")
-      .order("created_at", { ascending: false });
-
-    const { data: tlData, error: tlErr } = await supabase
-      .from("task_labels")
-      .select("task_id, label_id");
-
-    if (labelsErr || tasksErr || tlErr) throw labelsErr || tasksErr || tlErr;
-
-    const labels: Label[] = (labelsData ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color }));
-    const tasks: Task[] = (tasksData ?? []).map((t) => ({
-      id: t.id,
-      title: t.title,
-      description: t.description ?? undefined,
-      status: t.status,
-      dueDate: t.due_date ?? undefined,
-      labels: [],
-      createdAt: t.created_at,
-      updatedAt: t.updated_at,
-    }));
-
-    const byTask: Record<string, string[]> = {};
-    (tlData ?? []).forEach((row) => {
-      byTask[row.task_id] = byTask[row.task_id] || [];
-      byTask[row.task_id].push(row.label_id);
-    });
-    tasks.forEach((t) => { t.labels = byTask[t.id] ?? []; });
-
-    // If no labels in DB, seed defaults
-    const finalLabels = labels.length > 0 ? labels : DEFAULT_LABELS;
-
-    return { tasks, labels: finalLabels };
-  } catch (e) {
-    if (typeof window !== "undefined") {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as BoardState;
-          return {
-            tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
-            labels: Array.isArray(parsed.labels) && parsed.labels.length > 0 ? parsed.labels : DEFAULT_LABELS,
-          };
-        }
-      } catch {}
-    }
-    return { tasks: [], labels: DEFAULT_LABELS };
-  }
-}
+// fetchInitialState removed; initialization handled in provider with guest/auth detection
 
 function persistLocal(state: BoardState) {
   if (typeof window === "undefined") return;
@@ -91,26 +35,87 @@ function persistLocal(state: BoardState) {
 }
 
 export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
+  const { notify } = useToast();
   const [state, setState] = useState<BoardState>({ tasks: [], labels: DEFAULT_LABELS });
   const [filters, setFiltersState] = useState<Filters>({ query: "", when: "all", labelIds: [] });
+  const [auth, setAuth] = useState<{ guest: boolean; userId: string | null }>({ guest: true, userId: null });
   const listeners = useRef<Set<Listener>>(new Set());
 
   useEffect(() => {
-    // Load from Supabase, then seed default labels in DB if empty
     const run = async () => {
-      const initial = await fetchInitialState();
-      setState(initial);
-      // Seed labels if DB is empty
-      try {
-        const { data: countData } = await supabase.from("labels").select("id", { count: "estimated", head: true });
-        const hasLabels = !!countData && (countData as any).length !== undefined ? ((countData as any).length > 0) : initial.labels.length > 0;
-        if (!hasLabels && DEFAULT_LABELS.length) {
-          await supabase.from("labels").insert(DEFAULT_LABELS.map((l) => ({ id: l.id, name: l.name, color: l.color })));
-          const { data: labelsData } = await supabase.from("labels").select("id, name, color").order("name", { ascending: true });
-          const labels: Label[] = (labelsData ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color }));
-          setState((s) => ({ ...s, labels }));
+      const guest = typeof window !== "undefined" && localStorage.getItem("taskflow-guest") === "1";
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData.session?.user.id ?? null;
+      const isGuest = guest || !userId;
+      setAuth({ guest: isGuest, userId });
+
+      if (isGuest) {
+        // Guest: load from localStorage only, default labels if none
+        const raw = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as BoardState;
+            setState({
+              tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+              labels: Array.isArray(parsed.labels) && parsed.labels.length > 0 ? parsed.labels : DEFAULT_LABELS,
+            });
+            return;
+          } catch {}
         }
-      } catch {}
+        setState({ tasks: [], labels: DEFAULT_LABELS });
+        return;
+      }
+
+      // Authenticated: fetch user-scoped data from Supabase
+      try {
+        const { data: labelsData } = await supabase
+          .from("labels")
+          .select("id, name, color")
+          .eq("user_id", userId!)
+          .order("name", { ascending: true });
+
+        const { data: tasksData } = await supabase
+          .from("tasks")
+          .select("id, title, description, status, due_date, created_at, updated_at")
+          .eq("user_id", userId!)
+          .order("created_at", { ascending: false });
+
+        const { data: tlData } = await supabase
+          .from("task_labels")
+          .select("task_id, label_id")
+          .eq("user_id", userId!);
+
+        let labels: Label[] = (labelsData ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color }));
+        const existingNames = new Set(labels.map((l) => l.name.toLowerCase()));
+        const missingDefaults = DEFAULT_LABELS.filter((dl) => !existingNames.has(dl.name.toLowerCase()));
+        if (missingDefaults.length > 0) {
+          const seeded: Label[] = missingDefaults.map((dl) => ({ id: crypto.randomUUID(), name: dl.name, color: dl.color }));
+          await supabase
+            .from("labels")
+            .insert(seeded.map((l) => ({ id: l.id, name: l.name, color: l.color, user_id: userId })));
+          labels = [...labels, ...seeded];
+        }
+        const tasks: Task[] = (tasksData ?? []).map((t) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description ?? undefined,
+          status: t.status,
+          dueDate: t.due_date ?? undefined,
+          labels: [],
+          createdAt: t.created_at,
+          updatedAt: t.updated_at,
+        }));
+        const byTask: Record<string, string[]> = {};
+        (tlData ?? []).forEach((row) => {
+          byTask[row.task_id] = byTask[row.task_id] || [];
+          byTask[row.task_id].push(row.label_id);
+        });
+        tasks.forEach((t) => { t.labels = byTask[t.id] ?? []; });
+        setState({ tasks, labels });
+      } catch {
+        // Fallback local-only
+        setState({ tasks: [], labels: DEFAULT_LABELS });
+      }
     };
     run();
   }, []);
@@ -139,22 +144,30 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
       updatedAt: now,
     };
     setState((s) => ({ ...s, tasks: [t, ...s.tasks] }));
-    void (async () => {
-      await supabase.from("tasks").insert({
-        id,
-        title: t.title,
-        description: t.description ?? null,
-        status: t.status,
-        due_date: t.dueDate ?? null,
-        created_at: t.createdAt,
-        updated_at: t.updatedAt,
-      });
-      if (t.labels.length) {
-        await supabase.from("task_labels").insert(t.labels.map((lid) => ({ task_id: id, label_id: lid })));
-      }
-    })();
+    // Persist only for authenticated users
+    if (!auth.guest && auth.userId) {
+      void (async () => {
+        const { error: errTask } = await supabase.from("tasks").insert({
+          id,
+          title: t.title,
+          description: t.description ?? null,
+          status: t.status,
+          due_date: t.dueDate ?? null,
+          created_at: t.createdAt,
+          updated_at: t.updatedAt,
+          user_id: auth.userId,
+        });
+        if (errTask) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+        if (t.labels.length) {
+          const { error: errTL } = await supabase
+            .from("task_labels")
+            .insert(t.labels.map((lid) => ({ task_id: id, label_id: lid, user_id: auth.userId })));
+          if (errTL) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+        }
+      })();
+    }
     return t;
-  }, []);
+  }, [auth.guest, auth.userId, notify]);
 
   const updateTask = useCallback<TaskStoreValue["updateTask"]>((id, patch) => {
     const updates: Record<string, unknown> = {};
@@ -162,17 +175,32 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
     if (patch.description !== undefined) updates.description = patch.description ?? null;
     if (patch.status !== undefined) updates.status = patch.status;
     if (patch.dueDate !== undefined) updates.due_date = patch.dueDate ?? null;
-    void (async () => {
-      if (Object.keys(updates).length > 0) {
-        await supabase.from("tasks").update(updates).eq("id", id);
-      }
-      if (patch.labels) {
-        await supabase.from("task_labels").delete().eq("task_id", id);
-        if (patch.labels.length) {
-          await supabase.from("task_labels").insert(patch.labels.map((lid) => ({ task_id: id, label_id: lid })));
+    if (!auth.guest && auth.userId) {
+      void (async () => {
+        if (Object.keys(updates).length > 0) {
+          const { error: errUpd } = await supabase
+            .from("tasks")
+            .update(updates)
+            .eq("id", id)
+            .eq("user_id", auth.userId!);
+          if (errUpd) notify({ type: "error", title: "Couldn't save changes. Please retry." });
         }
-      }
-    })();
+        if (patch.labels) {
+          const { error: errDelTL } = await supabase
+            .from("task_labels")
+            .delete()
+            .eq("task_id", id)
+            .eq("user_id", auth.userId!);
+          if (errDelTL) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+          if (patch.labels.length) {
+            const { error: errInsTL } = await supabase
+              .from("task_labels")
+              .insert(patch.labels.map((lid) => ({ task_id: id, label_id: lid, user_id: auth.userId })));
+            if (errInsTL) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+          }
+        }
+      })();
+    }
 
     setState((s) => ({
       ...s,
@@ -186,29 +214,50 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
         updatedAt: new Date().toISOString(),
       } : t)),
     }));
-  }, []);
+  }, [auth.guest, auth.userId, notify]);
 
   const deleteTask = useCallback<TaskStoreValue["deleteTask"]>((id) => {
-    void supabase.from("tasks").delete().eq("id", id);
+    if (!auth.guest && auth.userId) {
+      void (async () => {
+        const { error: errDel } = await supabase
+          .from("tasks")
+          .delete()
+          .eq("id", id)
+          .eq("user_id", auth.userId!);
+        if (errDel) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+      })();
+    }
     setState((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
-  }, []);
+  }, [auth.guest, auth.userId, notify]);
 
   const restoreTask = useCallback<TaskStoreValue["restoreTask"]>((task, index) => {
-    void (async () => {
-      await supabase.from("tasks").upsert({
-        id: task.id,
-        title: task.title,
-        description: task.description ?? null,
-        status: task.status,
-        due_date: task.dueDate ?? null,
-        created_at: task.createdAt,
-        updated_at: task.updatedAt,
-      });
-      await supabase.from("task_labels").delete().eq("task_id", task.id);
-      if (task.labels.length) {
-        await supabase.from("task_labels").insert(task.labels.map((lid) => ({ task_id: task.id, label_id: lid })));
-      }
-    })();
+    if (!auth.guest && auth.userId) {
+      void (async () => {
+        const { error: errUpsert } = await supabase.from("tasks").upsert({
+          id: task.id,
+          title: task.title,
+          description: task.description ?? null,
+          status: task.status,
+          due_date: task.dueDate ?? null,
+          created_at: task.createdAt,
+          updated_at: task.updatedAt,
+          user_id: auth.userId,
+        });
+        if (errUpsert) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+        const { error: errDelTL } = await supabase
+          .from("task_labels")
+          .delete()
+          .eq("task_id", task.id)
+          .eq("user_id", auth.userId!);
+        if (errDelTL) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+        if (task.labels.length) {
+          const { error: errInsTL } = await supabase
+            .from("task_labels")
+            .insert(task.labels.map((lid) => ({ task_id: task.id, label_id: lid, user_id: auth.userId })));
+          if (errInsTL) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+        }
+      })();
+    }
 
     setState((s) => {
       const without = s.tasks.filter((t) => t.id !== task.id);
@@ -228,10 +277,19 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
       }
       return { ...s, tasks };
     });
-  }, []);
+  }, [auth.guest, auth.userId, notify]);
 
   const moveTask = useCallback<TaskStoreValue["moveTask"]>((id, status, index) => {
-    void supabase.from("tasks").update({ status }).eq("id", id);
+    if (!auth.guest && auth.userId) {
+      void (async () => {
+        const { error: errMove } = await supabase
+          .from("tasks")
+          .update({ status })
+          .eq("id", id)
+          .eq("user_id", auth.userId!);
+        if (errMove) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+      })();
+    }
     setState((s) => {
       const tasks = s.tasks.slice();
       const i = tasks.findIndex((t) => t.id === id);
@@ -255,36 +313,61 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
       }
       return { ...s, tasks };
     });
-  }, []);
+  }, [auth.guest, auth.userId, notify]);
 
   const addLabel = useCallback<TaskStoreValue["addLabel"]>((label) => {
     const l: Label = { id: crypto.randomUUID(), name: label.name, color: label.color };
     setState((s) => ({ ...s, labels: [...s.labels, l] }));
-    void supabase.from("labels").insert({ id: l.id, name: l.name, color: l.color });
+    if (!auth.guest && auth.userId) {
+      void (async () => {
+        const { error: errLabelIns } = await supabase
+          .from("labels")
+          .insert({ id: l.id, name: l.name, color: l.color, user_id: auth.userId });
+        if (errLabelIns) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+      })();
+    }
     return l;
-  }, []);
+  }, [auth.guest, auth.userId, notify]);
 
   const updateLabel = useCallback<TaskStoreValue["updateLabel"]>((id, patch) => {
     const updates: Record<string, unknown> = {};
     if (patch.name !== undefined) updates.name = patch.name;
     if (patch.color !== undefined) updates.color = patch.color;
-    if (Object.keys(updates).length > 0) {
-      void supabase.from("labels").update(updates).eq("id", id);
+    if (!auth.guest && auth.userId) {
+      if (Object.keys(updates).length > 0) {
+        void (async () => {
+          const { error: errLabelUpd } = await supabase
+            .from("labels")
+            .update(updates)
+            .eq("id", id)
+            .eq("user_id", auth.userId!);
+          if (errLabelUpd) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+        })();
+      }
     }
     setState((s) => ({
       ...s,
       labels: s.labels.map((l) => (l.id === id ? { ...l, ...patch } : l)),
     }));
-  }, []);
+  }, [auth.guest, auth.userId, notify]);
 
   const deleteLabel = useCallback<TaskStoreValue["deleteLabel"]>((id) => {
-    void supabase.from("labels").delete().eq("id", id);
+    if (!auth.guest && auth.userId) {
+      void (async () => {
+        const { error: errLabelDel } = await supabase
+          .from("labels")
+          .delete()
+          .eq("id", id)
+          .eq("user_id", auth.userId!);
+        if (errLabelDel) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+      })();
+    }
     setState((s) => ({
       ...s,
       labels: s.labels.filter((l) => l.id !== id),
       tasks: s.tasks.map((t) => ({ ...t, labels: t.labels.filter((lid) => lid !== id) })),
     }));
-  }, []);
+  }, [auth.guest, auth.userId, notify]);
 
   const subscribe = useCallback<TaskStoreValue["subscribe"]>((fn) => {
     listeners.current.add(fn);
@@ -331,20 +414,34 @@ export function useFilteredTasks() {
     in7.setDate(now.getDate() + 7);
     const in7Str = in7.toISOString().slice(0, 10);
 
+    // Build a map of label id -> name for grouping duplicates
+    const nameById = new Map<string, string>();
+    for (const l of state.labels) nameById.set(l.id, l.name.toLowerCase());
+
     return state.tasks.filter((t) => {
       if (filters.when === "today" && t.dueDate !== todayStr) return false;
       if (filters.when === "upcoming") {
         if (!t.dueDate) return false;
         if (t.dueDate < todayStr || t.dueDate > in7Str) return false;
       }
-      if (filters.labelIds.length > 0 && !filters.labelIds.every((id) => t.labels.includes(id))) return false;
+      if (filters.labelIds.length > 0) {
+        // For each selected label id, consider all labels with the same name as a group.
+        const selectedGroups = filters.labelIds.map((id) => nameById.get(id)).filter(Boolean) as string[];
+        const groupsRequired = new Set(selectedGroups);
+        // Build set of names present on the task
+        const taskNames = new Set(t.labels.map((id) => nameById.get(id)).filter(Boolean) as string[]);
+        // Task must contain at least one label from each selected name group
+        for (const name of groupsRequired) {
+          if (!taskNames.has(name)) return false;
+        }
+      }
       if (query) {
         const hay = `${t.title} ${t.description ?? ""}`.toLowerCase();
         if (!hay.includes(query)) return false;
       }
       return true;
     });
-  }, [filters, now, state.tasks]);
+  }, [filters, now, state.tasks, state.labels]);
 
   const [result, setResult] = useState<Task[]>(compute);
 

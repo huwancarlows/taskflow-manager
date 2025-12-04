@@ -222,7 +222,7 @@ function TaskForm({
             </button>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
-            {state.labels.map((l) => {
+            {Array.from(new Map(state.labels.map((l) => [l.name.toLowerCase(), l])).values()).map((l) => {
               const active = labelIds.includes(l.id);
               return (
                 <button

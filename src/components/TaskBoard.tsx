@@ -71,10 +71,13 @@ function Column({
           </div>
         ))}
         {tasks.length === 0 && (
-          <div className="grid place-items-center rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-6 text-center text-sm text-zinc-500">
-            <div>
-              <p>No tasks here yet.</p>
-              <button className="mt-2 rounded-md bg-blue-600 px-3 py-1.5 text-white text-xs" onClick={onAddTask}>
+          <div className="grid place-items-center rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-6 text-center text-sm text-zinc-500 fade-in-up">
+            <div className="flex flex-col items-center gap-2">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="opacity-70">
+                <path d="M16 3H8a2 2 0 0 0-2 2v14l6-3 6 3V5a2 2 0 0 0-2-2z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+              </svg>
+              <p className="text-zinc-600 dark:text-zinc-400">No tasks here yet.</p>
+              <button className="mt-1 rounded-md bg-blue-600 px-3 py-1.5 text-white text-xs hover:bg-blue-700 transition" onClick={onAddTask}>
                 Create one
               </button>
             </div>
