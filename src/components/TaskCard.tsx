@@ -28,7 +28,7 @@ export function TaskCard({ task, onEdit, index, status, totalInStatus }: { task:
 
   return (
     <div
-      className="group rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 shadow-sm hover:shadow-md transition cursor-grab active:cursor-grabbing hover-raise"
+      className="group rounded-lg border border-zinc-300 dark:border-zinc-800 bg-white/90 dark:bg-zinc-900 p-3 shadow-sm hover:shadow-md transition cursor-grab active:cursor-grabbing hover-raise"
       draggable
       tabIndex={0}
       role="article"
@@ -86,7 +86,7 @@ export function TaskCard({ task, onEdit, index, status, totalInStatus }: { task:
       </div>
 
       {task.description ? (
-        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2">{task.description}</p>
+        <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400 line-clamp-2">{task.description}</p>
       ) : null}
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -109,7 +109,7 @@ export function TaskCard({ task, onEdit, index, status, totalInStatus }: { task:
 
       <div className="mt-3 flex justify-end">
         <button
-          className="text-xs text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+          className="text-xs text-zinc-700 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
           onClick={() => onEdit(task)}
         >
           Edit

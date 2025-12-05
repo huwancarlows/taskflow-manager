@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { BoardState, Filters, Label, Task, Status } from "@/types";
 import { DEFAULT_LABELS } from "@/types";
-import { supabase } from "@/lib/supabaseClient";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { useToast } from "@/components/ToastProvider";
 
 const STORAGE_KEY = "taskflow-board-v1"; // retained for fallback / local cache
@@ -36,14 +36,38 @@ function persistLocal(state: BoardState) {
 
 export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
   const { notify } = useToast();
+  type ApiLabel = { id: string; name: string; color: Label["color"] };
+  type ApiTask = { id: string; title: string; description: string | null; status: Status; due_date: string | null; created_at: string; updated_at: string };
+  type ApiTaskLabel = { task_id: string; label_id: string };
   const [state, setState] = useState<BoardState>({ tasks: [], labels: DEFAULT_LABELS });
   const [filters, setFiltersState] = useState<Filters>({ query: "", when: "all", labelIds: [] });
   const [auth, setAuth] = useState<{ guest: boolean; userId: string | null }>({ guest: true, userId: null });
   const listeners = useRef<Set<Listener>>(new Set());
 
+  async function extractError(res: Response, endpoint: string): Promise<string> {
+    try {
+      const data = (await res.clone().json()) as { error?: string; hint?: string; code?: string };
+      const parts: string[] = [];
+      if (data.error) parts.push(data.error);
+      if (data.hint) parts.push(`[${data.hint}]`);
+      if (data.code) parts.push(`(${data.code})`);
+      const detail = parts.length ? `: ${parts.join(" ")}` : "";
+      return `${endpoint} failed ${res.status} ${res.statusText}${detail}`;
+    } catch {
+      try {
+        const text = await res.clone().text();
+        const suffix = text ? `: ${text}` : "";
+        return `${endpoint} failed ${res.status} ${res.statusText}${suffix}`;
+      } catch {
+        return `${endpoint} failed ${res.status} ${res.statusText}`;
+      }
+    }
+  }
+
   useEffect(() => {
     const run = async () => {
       const guest = typeof window !== "undefined" && localStorage.getItem("taskflow-guest") === "1";
+      const supabase = supabaseBrowser();
       const { data: sessionData } = await supabase.auth.getSession();
       const userId = sessionData.session?.user.id ?? null;
       const isGuest = guest || !userId;
@@ -66,33 +90,43 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Authenticated: fetch user-scoped data from Supabase
+      // Authenticated: fetch user-scoped data via secured API routes
       try {
-        const { data: labelsData } = await supabase
-          .from("labels")
-          .select("id, name, color")
-          .eq("user_id", userId!)
-          .order("name", { ascending: true });
-
-        const { data: tasksData } = await supabase
-          .from("tasks")
-          .select("id, title, description, status, due_date, created_at, updated_at")
-          .eq("user_id", userId!)
-          .order("created_at", { ascending: false });
-
-        const { data: tlData } = await supabase
-          .from("task_labels")
-          .select("task_id, label_id")
-          .eq("user_id", userId!);
+        const [labelsRes, tasksRes, tlRes] = await Promise.all([
+          fetch("/api/labels", { method: "GET" }),
+          fetch("/api/tasks", { method: "GET" }),
+          fetch("/api/task_labels", { method: "GET" }),
+        ]);
+        if (!labelsRes.ok || !tasksRes.ok || !tlRes.ok) {
+          const msgs: string[] = [];
+          if (!labelsRes.ok) msgs.push(await extractError(labelsRes, "/api/labels"));
+          if (!tasksRes.ok) msgs.push(await extractError(tasksRes, "/api/tasks"));
+          if (!tlRes.ok) msgs.push(await extractError(tlRes, "/api/task_labels"));
+          const message = msgs.join(" | ");
+          console.error("Initial fetch error:", message);
+          notify({ type: "error", title: "Couldn't load your board", description: message });
+          throw new Error(message);
+        }
+        const { labels: labelsData } = await labelsRes.json() as { labels: ApiLabel[] };
+        const { tasks: tasksData } = await tasksRes.json() as { tasks: ApiTask[] };
+        const { taskLabels: tlData } = await tlRes.json() as { taskLabels: ApiTaskLabel[] };
 
         let labels: Label[] = (labelsData ?? []).map((l) => ({ id: l.id, name: l.name, color: l.color }));
         const existingNames = new Set(labels.map((l) => l.name.toLowerCase()));
         const missingDefaults = DEFAULT_LABELS.filter((dl) => !existingNames.has(dl.name.toLowerCase()));
         if (missingDefaults.length > 0) {
           const seeded: Label[] = missingDefaults.map((dl) => ({ id: crypto.randomUUID(), name: dl.name, color: dl.color }));
-          await supabase
-            .from("labels")
-            .insert(seeded.map((l) => ({ id: l.id, name: l.name, color: l.color, user_id: userId })));
+          const res = await fetch("/api/labels", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(seeded.map((l) => ({ id: l.id, name: l.name, color: l.color }))),
+          });
+          if (!res.ok) {
+            const msg = await extractError(res, "/api/labels POST");
+            console.error("Seed labels error:", msg);
+            notify({ type: "error", title: "Couldn't seed default labels", description: msg });
+            throw new Error(msg);
+          }
           labels = [...labels, ...seeded];
         }
         const tasks: Task[] = (tasksData ?? []).map((t) => ({
@@ -112,7 +146,12 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
         });
         tasks.forEach((t) => { t.labels = byTask[t.id] ?? []; });
         setState({ tasks, labels });
-      } catch {
+      } catch (e) {
+        if (e instanceof Error) {
+          console.error("Initialization failure:", e.message);
+        } else {
+          console.error("Initialization failure: unknown error");
+        }
         // Fallback local-only
         setState({ tasks: [], labels: DEFAULT_LABELS });
       }
@@ -147,7 +186,8 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
     // Persist only for authenticated users
     if (!auth.guest && auth.userId) {
       void (async () => {
-        const { error: errTask } = await supabase.from("tasks").insert({
+          const supabase = supabaseBrowser();
+          const { error: errTask } = await supabase.from("tasks").insert({
           id,
           title: t.title,
           description: t.description ?? null,
@@ -178,7 +218,8 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
     if (!auth.guest && auth.userId) {
       void (async () => {
         if (Object.keys(updates).length > 0) {
-          const { error: errUpd } = await supabase
+            const supabase = supabaseBrowser();
+            const { error: errUpd } = await supabase
             .from("tasks")
             .update(updates)
             .eq("id", id)
@@ -186,17 +227,23 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
           if (errUpd) notify({ type: "error", title: "Couldn't save changes. Please retry." });
         }
         if (patch.labels) {
-          const { error: errDelTL } = await supabase
-            .from("task_labels")
-            .delete()
-            .eq("task_id", id)
-            .eq("user_id", auth.userId!);
-          if (errDelTL) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+          const delRes = await fetch(`/api/task_labels?task_id=${id}`, { method: "DELETE" });
+          if (!delRes.ok) {
+            const msg = await extractError(delRes, "/api/task_labels DELETE");
+            console.error(msg);
+            notify({ type: "error", title: "Label update failed", description: msg });
+          }
           if (patch.labels.length) {
-            const { error: errInsTL } = await supabase
-              .from("task_labels")
-              .insert(patch.labels.map((lid) => ({ task_id: id, label_id: lid, user_id: auth.userId })));
-            if (errInsTL) notify({ type: "error", title: "Couldn't save changes. Please retry." });
+            const insRes = await fetch("/api/task_labels", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(patch.labels.map((lid) => ({ task_id: id, label_id: lid })) ),
+            });
+            if (!insRes.ok) {
+              const msg = await extractError(insRes, "/api/task_labels POST");
+              console.error(msg);
+              notify({ type: "error", title: "Label update failed", description: msg });
+            }
           }
         }
       })();
@@ -219,7 +266,8 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
   const deleteTask = useCallback<TaskStoreValue["deleteTask"]>((id) => {
     if (!auth.guest && auth.userId) {
       void (async () => {
-        const { error: errDel } = await supabase
+          const supabase = supabaseBrowser();
+          const { error: errDel } = await supabase
           .from("tasks")
           .delete()
           .eq("id", id)
@@ -233,7 +281,8 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
   const restoreTask = useCallback<TaskStoreValue["restoreTask"]>((task, index) => {
     if (!auth.guest && auth.userId) {
       void (async () => {
-        const { error: errUpsert } = await supabase.from("tasks").upsert({
+          const supabase = supabaseBrowser();
+          const { error: errUpsert } = await supabase.from("tasks").upsert({
           id: task.id,
           title: task.title,
           description: task.description ?? null,
@@ -282,7 +331,8 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
   const moveTask = useCallback<TaskStoreValue["moveTask"]>((id, status, index) => {
     if (!auth.guest && auth.userId) {
       void (async () => {
-        const { error: errMove } = await supabase
+          const supabase = supabaseBrowser();
+          const { error: errMove } = await supabase
           .from("tasks")
           .update({ status })
           .eq("id", id)
@@ -320,7 +370,8 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, labels: [...s.labels, l] }));
     if (!auth.guest && auth.userId) {
       void (async () => {
-        const { error: errLabelIns } = await supabase
+          const supabase = supabaseBrowser();
+          const { error: errLabelIns } = await supabase
           .from("labels")
           .insert({ id: l.id, name: l.name, color: l.color, user_id: auth.userId });
         if (errLabelIns) notify({ type: "error", title: "Couldn't save changes. Please retry." });
@@ -336,7 +387,8 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
     if (!auth.guest && auth.userId) {
       if (Object.keys(updates).length > 0) {
         void (async () => {
-          const { error: errLabelUpd } = await supabase
+            const supabase = supabaseBrowser();
+            const { error: errLabelUpd } = await supabase
             .from("labels")
             .update(updates)
             .eq("id", id)
@@ -354,7 +406,8 @@ export function TaskStoreProvider({ children }: { children: React.ReactNode }) {
   const deleteLabel = useCallback<TaskStoreValue["deleteLabel"]>((id) => {
     if (!auth.guest && auth.userId) {
       void (async () => {
-        const { error: errLabelDel } = await supabase
+          const supabase = supabaseBrowser();
+          const { error: errLabelDel } = await supabase
           .from("labels")
           .delete()
           .eq("id", id)

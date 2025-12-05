@@ -76,9 +76,9 @@ export function TaskModal({
   }, [open]);
 
   const overlay = (
-    <div className="fixed inset-0 z-100 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={handleClose}>
+    <div className="fixed inset-0 z-100 grid place-items-center bg-black/50 backdrop-blur-sm p-4" onClick={handleClose}>
       <div
-        className="w-full max-w-lg rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xl ring-1 ring-black/5 hover-raise"
+        className="w-full max-w-lg rounded-xl bg-zinc-50 dark:bg-zinc-900 p-4 shadow-xl ring-1 ring-black/5 hover-raise"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -86,7 +86,7 @@ export function TaskModal({
         ref={dialogRef}
       >
         <div className="flex items-center justify-between">
-          <h3 id="task-modal-title" className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+          <h3 id="task-modal-title" className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
             {initial ? "Edit Task" : "New Task"}
           </h3>
           <button aria-label="Close" className="text-zinc-400 hover:text-zinc-700" onClick={handleClose}>×</button>
@@ -158,19 +158,19 @@ function TaskForm({
     <>
       <div className="mt-4 space-y-3">
         <div>
-          <label className="block text-sm text-zinc-600 dark:text-zinc-400">Title</label>
+          <label className="block text-sm text-zinc-700 dark:text-zinc-400">Title</label>
           <input
             ref={titleRef}
-            className="mt-1 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Task title"
           />
         </div>
         <div>
-          <label className="block text-sm text-zinc-600 dark:text-zinc-400">Description</label>
+          <label className="block text-sm text-zinc-700 dark:text-zinc-400">Description</label>
           <textarea
-            className="mt-1 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
             rows={4}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -179,9 +179,9 @@ function TaskForm({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm text-zinc-600 dark:text-zinc-400">Status</label>
+            <label className="block text-sm text-zinc-700 dark:text-zinc-400">Status</label>
             <select
-              className="mt-1 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
               value={status}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
                 setStatus(e.currentTarget.value as Task["status"]) }
@@ -192,9 +192,9 @@ function TaskForm({
             </select>
           </div>
           <div>
-            <label className="block text-sm text-zinc-600 dark:text-zinc-400">Due date</label>
+            <label className="block text-sm text-zinc-700 dark:text-zinc-400">Due date</label>
             <input
-              className="mt-1 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
               type="date"
               value={dueDate ?? ""}
               onChange={(e) => setDueDate(e.target.value || undefined)}
@@ -203,9 +203,9 @@ function TaskForm({
         </div>
         <div>
           <div className="flex items-center justify-between">
-            <label className="block text-sm text-zinc-600 dark:text-zinc-400">Labels</label>
+            <label className="block text-sm text-zinc-700 dark:text-zinc-400">Labels</label>
             <button
-              className="text-xs text-blue-600 hover:underline"
+              className="text-xs text-blue-600/90 hover:text-blue-600 hover:underline"
               onClick={() => {
                 const name = prompt("New label name?");
                 if (!name) return;
@@ -230,7 +230,7 @@ function TaskForm({
                   className={`rounded-full border px-3 py-1 text-xs transition ${
                     active
                       ? `${BG[l.color]} text-white border-transparent`
-                      : `bg-transparent text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700`
+                      : `bg-zinc-50 dark:bg-transparent text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700`
                   }`}
                   onClick={() =>
                     setLabelIds((ids) =>
@@ -247,11 +247,11 @@ function TaskForm({
       </div>
 
       <div className="mt-6 flex justify-end gap-2">
-        <button className="px-3 py-2 text-sm" onClick={onClose}>
+        <button className="px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300" onClick={onClose}>
           Cancel
         </button>
         <button
-          className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+          className="rounded-md bg-blue-600/90 hover:bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
           disabled={!title.trim()}
           onClick={() => {
             if (initial) {

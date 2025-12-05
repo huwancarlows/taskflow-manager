@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { ToastProvider, useToast } from "@/components/ToastProvider";
 
 function LoginContent() {
@@ -18,6 +18,7 @@ function LoginContent() {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
+    const supabase = supabaseBrowser();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       notify({ type: "error", title: "Couldn't sign in. Please retry." });
@@ -31,7 +32,7 @@ function LoginContent() {
         localStorage.removeItem("taskflow-guest");
       }
       notify({ type: "success", title: "Signed in" });
-      router.push("/");
+      router.push("/board");
       return;
     }
     setMessage("Unexpected: signed in without user");
@@ -41,6 +42,7 @@ function LoginContent() {
   async function onMagicLink() {
     setLoading(true);
     setMessage(null);
+    const supabase = supabaseBrowser();
     const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined } });
     if (error) {
       notify({ type: "error", title: "Couldn't send magic link. Please retry." });

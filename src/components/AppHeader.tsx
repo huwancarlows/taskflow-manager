@@ -27,7 +27,7 @@ export function AppHeader() {
       <div className="mx-auto max-w-6xl px-4 py-3">
         <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <div className="h-6 w-6 rounded bg-linear-to-br from-blue-600 to-fuchsia-500" />
+            <div className="h-6 w-6 rounded bg-linear-to-br from-blue-600 to-fuchsia-500"    />
             <div className="leading-tight">
               <div className="font-semibold">TaskFlow Manager</div>
               <span className="text-xs text-zinc-500">Press Ctrl/⌘ K</span>

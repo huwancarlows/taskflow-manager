@@ -23,7 +23,7 @@ function Column({
   const { announce } = useAnnouncer();
   return (
     <div
-      className="flex h-full min-h-[300px] flex-col gap-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 p-3 ring-1 ring-inset ring-zinc-200 dark:ring-zinc-800"
+      className="flex h-full min-h-[300px] flex-col gap-3 rounded-xl bg-zinc-100 dark:bg-zinc-900/40 p-3 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-800"
       onDragOver={(e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
@@ -71,7 +71,7 @@ function Column({
           </div>
         ))}
         {tasks.length === 0 && (
-          <div className="grid place-items-center rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-6 text-center text-sm text-zinc-500 fade-in-up">
+          <div className="grid place-items-center rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-6 text-center text-sm text-zinc-600 fade-in-up bg-zinc-50 dark:bg-transparent">
             <div className="flex flex-col items-center gap-2">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="opacity-70">
                 <path d="M16 3H8a2 2 0 0 0-2 2v14l6-3 6 3V5a2 2 0 0 0-2-2z" stroke="currentColor" strokeWidth="1.5" fill="none"/>

@@ -10,7 +10,7 @@ import { AnnouncerProvider } from "@/components/Announcer";
 import type { Status } from "@/types";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 export default function BoardPage() {
   const router = useRouter();
@@ -28,6 +28,7 @@ export default function BoardPage() {
     let cancelled = false;
     const check = async () => {
       const guest = typeof window !== "undefined" && localStorage.getItem("taskflow-guest") === "1";
+      const supabase = supabaseBrowser();
       const { data } = await supabase.auth.getSession();
       const hasSession = !!data.session;
       if (!cancelled && !guest && !hasSession) {
@@ -48,7 +49,7 @@ export default function BoardPage() {
             onNewTask={() => openNewTask()}
             focusSearch={() => searchRef.current?.focus()}
           />
-          <div id="app-root" className="min-h-screen text-zinc-900 dark:text-zinc-100">
+          <div id="app-root" className="min-h-screen bg-zinc-100 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
             <CommandPalette onNewTask={openNewTask} focusSearch={() => searchRef.current?.focus()} />
             <main className="mx-auto max-w-6xl px-4 py-6 space-y-4">
               <FiltersBar onNewTask={() => openNewTask()} inputRef={searchRef} />
